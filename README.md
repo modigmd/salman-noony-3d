@@ -2,6 +2,17 @@
 
 A minimal, mobile-first 3D baby viewer. Select سلمان to view the supplied model, drag to rotate, and pinch to zoom. Select نوني for “Coming soon.”
 
+Live website: <https://modigmd.github.io/salman-noony-3d/>
+
+GitHub Pages publishes the root of the `gh-pages` branch. To publish updated files from `dist/`:
+
+```sh
+git add dist
+git commit -m "Update website"
+git push origin main
+git subtree push --prefix=dist origin gh-pages
+```
+
 ## Preview
 
 Requires Node.js, with no package installation:
