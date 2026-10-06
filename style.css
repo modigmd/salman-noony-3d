@@ -1,0 +1,24 @@
+@font-face{font-family:Arabic;src:url('./assets/arabic.ttf') format('truetype');font-weight:500;font-display:swap}
+:root{color-scheme:dark;font-family:Arabic,'Noto Sans Arabic',sans-serif;background:#090a0d;color:#eee9e2}
+*{box-sizing:border-box}
+body{margin:0;overflow:hidden;min-height:100svh}
+header{position:fixed;top:0;inset-inline:0;z-index:2;padding:calc(env(safe-area-inset-top) + 23px) 24px 0;display:flex;justify-content:center;pointer-events:none}
+nav{display:flex;gap:42px;pointer-events:auto}
+nav button{font:500 1.55rem/1.9 Arabic,sans-serif;color:#777982;background:none;border:0;border-bottom:1px solid transparent;padding:2px 5px 7px;cursor:pointer;transition:color .25s,border-color .25s;-webkit-tap-highlight-color:transparent}
+nav button[aria-selected=true]{color:#eee9e2;border-color:#a89a89}
+nav button:hover{color:#eee9e2}
+button:focus-visible,canvas:focus-visible{outline:2px solid #b8a88e;outline-offset:6px}
+main{height:100svh;height:100dvh;padding-top:calc(env(safe-area-inset-top) + 99px);padding-bottom:env(safe-area-inset-bottom)}
+section{position:relative;width:100%;height:100%;background:radial-gradient(ellipse at 50% 43%,#17191f 0%,#0c0d11 47%,#090a0d 78%)}
+[hidden]{display:none!important}
+canvas{display:block;width:100%;height:100%;touch-action:none;cursor:grab;opacity:0;transition:opacity .6s}
+canvas.ready{opacity:1}
+canvas:active{cursor:grabbing}
+#soon{display:grid;place-items:center}
+#soon p{font:400 1rem/1.5 system-ui,sans-serif;color:#8c8d95;margin:0 0 12vh;letter-spacing:.025em}
+#loading,#error{position:absolute;inset:0;display:grid;place-items:center}
+#loading span{height:22px;width:22px;border:1px solid #33353c;border-top-color:#b5a58f;border-radius:50%;animation:spin 1.1s linear infinite}
+#error button{border:0;background:transparent;color:#a99b86;font:32px system-ui;cursor:pointer}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(min-width:768px){header{padding-top:32px}nav{gap:56px}nav button{font-size:1.7rem}main{padding-top:110px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}#loading span{animation-duration:2.5s}}

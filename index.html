@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#090a0d">
+  <title>سلمان ونوني</title>
+  <meta name="description" content="سلمان ونوني">
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
+</head>
+<body>
+  <header>
+    <nav role="tablist" aria-label="الأطفال">
+      <button id="salman" role="tab" aria-selected="true" aria-controls="viewer" tabindex="0">سلمان</button>
+      <button id="noony" role="tab" aria-selected="false" aria-controls="soon" tabindex="-1">نوني</button>
+    </nav>
+  </header>
+  <main>
+    <section id="viewer" role="tabpanel" aria-labelledby="salman">
+      <div id="loading" role="status" aria-label="جارٍ التحميل"><span></span></div>
+      <div id="error" hidden><button aria-label="إعادة المحاولة" onclick="location.reload()">↻</button></div>
+      <canvas aria-label="نموذج سلمان ثلاثي الأبعاد، اسحب للدوران واستخدم إصبعين للتكبير" tabindex="0"></canvas>
+    </section>
+    <section id="soon" role="tabpanel" aria-labelledby="noony" hidden><p lang="en" dir="ltr">Coming soon</p></section>
+  </main>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
