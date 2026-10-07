@@ -1,17 +1,21 @@
 import * as THREE from 'three';
 import {OrbitControls} from './vendor/OrbitControls.js';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
+import {CheekJiggle} from './cheek-jiggle.js';
 
 const canvas = document.querySelector('canvas');
 const viewer = document.querySelector('#viewer');
 const soon = document.querySelector('#soon');
 const tabs = [...document.querySelectorAll('[role=tab]')];
 let renderer, controls, camera, scene, model, frame;
+let cheeks=[], lastTime=null;
+const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 let active = true;
 const select = (index) => {
   active = index === 0;
   tabs.forEach((tab,i) => {tab.setAttribute('aria-selected',i===index);tab.tabIndex=i===index?0:-1;});
   viewer.hidden = !active; soon.hidden = active;
+  resetMotion();
   if (active && renderer) {resize();draw();}
   else cancelAnimationFrame(frame);
 };
@@ -33,7 +37,23 @@ function resize() {
 function draw() {
   cancelAnimationFrame(frame);
   if (!active || document.hidden) return;
-  controls.update();renderer.render(scene,camera);frame=requestAnimationFrame(draw);
+  const now=performance.now(), elapsed=lastTime===null?0:(now-lastTime)/1000;
+  lastTime=now;controls.update();
+  const azimuth=controls.getAzimuthalAngle(), polar=controls.getPolarAngle();
+  cheeks.forEach(cheek => {
+    if(reducedMotion.matches)cheek.reset(azimuth,polar);
+    else cheek.update(elapsed,azimuth,polar,camera);
+  });
+  renderer.render(scene,camera);frame=requestAnimationFrame(draw);
+}
+function resetMotion() {
+  lastTime=null;
+  if(!controls)return;
+  // Consume pending orbit damping without moving the displayed camera on resume.
+  const position=camera.position.clone(), target=controls.target.clone(), damping=controls.enableDamping;
+  controls.enableDamping=false;controls.update();
+  camera.position.copy(position);controls.target.copy(target);controls.enableDamping=damping;controls.update();
+  cheeks.forEach(cheek => cheek.reset(controls.getAzimuthalAngle(),controls.getPolarAngle()));
 }
 function fit() {
   const size = new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3());
@@ -42,6 +62,7 @@ function fit() {
   camera.position.set(0,size.y*.04,distance);
   controls.target.set(0,0,0);controls.minDistance=distance*.48;controls.maxDistance=distance*2.4;
   controls.update();controls.saveState();
+  resetMotion();
 }
 try {
   renderer = new THREE.WebGLRenderer({canvas,antialias:true,alpha:true,powerPreference:'low-power'});
@@ -61,10 +82,12 @@ try {
     model=gltf.scene;
     const box=new THREE.Box3().setFromObject(model);
     model.position.sub(box.getCenter(new THREE.Vector3()));scene.add(model);
+    model.traverse(object => {if(object.isMesh)cheeks.push(new CheekJiggle(object));});
     fit();document.querySelector('#loading').hidden=true;canvas.classList.add('ready');draw();
   },undefined,failed);
   window.addEventListener('resize',() => {resize();if(model && active)fit();});
-  document.addEventListener('visibilitychange',draw);
+  document.addEventListener('visibilitychange',() => {resetMotion();draw();});
+  reducedMotion.addEventListener('change',resetMotion);
   canvas.addEventListener('keydown',event => {
     if (!model) return;
     const offset=camera.position.clone().sub(controls.target);
