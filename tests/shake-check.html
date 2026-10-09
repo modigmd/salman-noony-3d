@@ -35,10 +35,15 @@
     function pose() {
       const {body, camera} = debug.state;
       const screen = body.position.clone().applyQuaternion(camera.quaternion.clone().invert()).toArray();
-      return {position:body.position.toArray(), screen, displacement:body.position.length(), rotation:2*Math.acos(Math.min(1,Math.abs(body.quaternion.w))), scale:body.scale.toArray()};
+      const jelly = debug.state.jellies.map(helper => ({bend:helper.bend.toArray(),ripple:helper.ripple.toArray(),squash:helper.squash.value}));
+      return {position:body.position.toArray(), screen, displacement:body.position.length(), rotation:2*Math.acos(Math.min(1,Math.abs(body.quaternion.w))), scale:body.scale.toArray(),jelly};
     }
-    const resting = value => value.displacement < 1e-10 && value.rotation < 1e-7 && value.scale.every(axis => Math.abs(axis-1) < 1e-10);
-    const bounded = value => [...value.position,value.rotation,...value.scale].every(Number.isFinite) && value.displacement <= .100001 && value.rotation < .4 && value.scale[1] >= .95999 && value.scale[1] <= 1.04001 && [value.scale[0],value.scale[2]].every(axis => axis >= .97999 && axis <= 1.02001);
+    const jellyValues = value => value.jelly.flatMap(helper => [...helper.bend,...helper.ripple,helper.squash]);
+    const poseValues = value => [...value.position,value.rotation,...value.scale,...jellyValues(value)];
+    const fixedBody = value => value.displacement < 1e-10 && value.rotation < 1e-7 && value.scale.every(axis => Math.abs(axis-1) < 1e-10);
+    const resting = value => fixedBody(value) && jellyValues(value).every(axis => Math.abs(axis) < 1e-10);
+    const bounded = value => poseValues(value).every(Number.isFinite) && fixedBody(value) && value.jelly.every(helper => Math.hypot(...helper.bend) <= .090001 && Math.hypot(...helper.ripple) <= .023001 && Math.abs(helper.squash) <= .060001);
+    const jellyMagnitude = value => Math.max(0,...value.jelly.map(helper => Math.hypot(...helper.bend)+Math.hypot(...helper.ripple)));
     function frames(count = 1) {for(let i = 0; i < count; i++) debug.step(1/60,false);}
     function baseline() {debug.fit(); debug.stop(); debug.resetMotion(); debug.stop();}
     async function enable() {if(!debug.state.motionEnabled) {toggle.click(); await wait(0); debug.stop();}}
@@ -47,7 +52,7 @@
       for(let i = 0; i < count; i++) {
         environment.motion(acceleration,angle); frames();
         const current = pose(); allBounded &&= bounded(current);
-        if(current.displacement > peak.displacement) peak = current;
+        if(jellyMagnitude(current) > jellyMagnitude(peak)) peak = {...current,referenceVelocity:[...debug.state.shake.velocity]};
       }
       return {...peak, allBounded};
     }
@@ -72,6 +77,7 @@
       toggle.click(); check('permission starts synchronously from tap', environment.permissionCalls === 1 && toggle.disabled, environment.permissionCalls);
       await wait(0); debug.stop();
       check('grant enables motion and updates accessible toggle', debug.state.motionEnabled && toggle.getAttribute('aria-pressed') === 'true' && !toggle.disabled, toggle.textContent);
+      check('whole-model jelly helpers are attached to the mesh',debug.state.jellies.length > 0,debug.state.jellies.length);
       baseline();
       for(let i = 0; i < 8; i++) {environment.motion(null,0,null);frames();}
       check('missing sensor readings are ignored',resting(pose()) && debug.state.shake.samples.length === 0,pose());
@@ -79,11 +85,11 @@
       for(let i = 0; i < 12; i++) {environment.motion(null,0,{x:0,y:9.81,z:0});frames();}
       check('stationary gravity produces no shake',resting(pose()),pose());
       baseline(); const portrait = drive({x:12,y:0,z:0});
-      check('portrait shake moves the entire model against acceleration', portrait.screen[0] < -.001 && Math.abs(portrait.screen[1]) < .0001 && portrait.allBounded, portrait);
+      check('portrait jelly lags the reference velocity while the base stays fixed', portrait.jelly.some(helper => helper.bend[0] > .005) && portrait.referenceVelocity[0] < 0 && portrait.allBounded, portrait);
       baseline(); const landscape = drive({x:0,y:12,z:0},90);
-      check('landscape sensor axes follow screen orientation', landscape.screen[0] > .001 && Math.abs(landscape.screen[1]) < .0001 && landscape.allBounded, landscape);
+      check('landscape sensor axes drive jelly with the base fixed', landscape.jelly.some(helper => helper.bend[0] < -.005) && landscape.referenceVelocity[0] > 0 && landscape.allBounded, landscape);
       baseline(); const peak = drive();
-      check('shake creates bounded translation rotation and squash', peak.displacement > .005 && peak.rotation > .001 && Math.abs(peak.scale[1]-1) > .001 && peak.allBounded, peak);
+      check('shake creates bounded mesh bending ripples and squash with a fixed base', peak.jelly.some(helper => Math.hypot(...helper.bend) > .005 && Math.hypot(...helper.ripple) > .0001 && Math.abs(helper.squash) > .0005) && peak.allBounded, peak);
       const settled = settle(); check('whole-model motion settles after sensor input stops', resting(settled), settled);
       baseline();
       const fitState = () => ({position:debug.state.camera.position.toArray(),minimum:debug.state.controls.minDistance,maximum:debug.state.controls.maxDistance});
@@ -97,7 +103,7 @@
       }
       check('refitting after shake restores identical camera framing and zoom bounds',fitsMatch,{reference:fitReference,refits});
       baseline(); let repeatedPeak = 0, repeatedBounded = true;
-      for(let i = 0; i < 20; i++) {const current = drive({x:i%2 ? -80 : 80,y:60,z:-30},0,2); repeatedPeak = Math.max(repeatedPeak,current.displacement); repeatedBounded &&= current.allBounded;}
+      for(let i = 0; i < 20; i++) {const current = drive({x:i%2 ? -80 : 80,y:60,z:-30},0,2); repeatedPeak = Math.max(repeatedPeak,jellyMagnitude(current)); repeatedBounded &&= current.allBounded;}
       check('rapid reversing shake remains bounded', repeatedPeak > .005 && repeatedBounded, repeatedPeak); settle();
       baseline(); drive(); toggle.click(); await wait(0); debug.stop(); drive();
       check('disable resets transforms and ignores sensor input', !debug.state.motionEnabled && resting(pose()) && toggle.getAttribute('aria-pressed') === 'false', pose());
@@ -108,9 +114,9 @@
       const beforeHeight = pose(), radiusBeforeHeight = debug.state.camera.position.distanceTo(debug.state.controls.target), springBeforeHeight = [...debug.state.shake.position], samplesBeforeHeight = debug.state.shake.samples.length;
       iframe.style.height = '780px'; child.dispatchEvent(new child.Event('resize')); debug.stop();
       const afterHeight = pose(), radiusAfterHeight = debug.state.camera.position.distanceTo(debug.state.controls.target);
-      const samePose = [...beforeHeight.position,beforeHeight.rotation,...beforeHeight.scale].every((value,index) => Math.abs(value-[...afterHeight.position,afterHeight.rotation,...afterHeight.scale][index]) < 1e-12);
-      check('height-only phone viewport changes preserve live shake and camera distance',samePose && beforeHeight.displacement > .005 && Math.abs(radiusAfterHeight-radiusBeforeHeight) < 1e-12 && springBeforeHeight.every((value,index) => value === debug.state.shake.position[index]) && samplesBeforeHeight === debug.state.shake.samples.length,{before:beforeHeight,after:afterHeight,radiusBefore:radiusBeforeHeight,radiusAfter:radiusAfterHeight});
-      frames(); check('shake continues finitely after height-only resize',bounded(pose()) && pose().displacement > 0,pose());
+      const samePose = poseValues(beforeHeight).every((value,index) => Math.abs(value-poseValues(afterHeight)[index]) < 1e-12);
+      check('height-only phone viewport changes preserve live jelly and camera distance',samePose && jellyMagnitude(beforeHeight) > .005 && Math.abs(radiusAfterHeight-radiusBeforeHeight) < 1e-12 && springBeforeHeight.every((value,index) => value === debug.state.shake.position[index]) && samplesBeforeHeight === debug.state.shake.samples.length,{before:beforeHeight,after:afterHeight,radiusBefore:radiusBeforeHeight,radiusAfter:radiusAfterHeight});
+      frames(); check('jelly continues finitely after height-only resize',bounded(pose()) && jellyMagnitude(pose()) > 0,pose());
       baseline(); drive(); iframe.style.width = '420px'; child.dispatchEvent(new child.Event('resize')); debug.stop();
       check('resize refits and resets whole-model motion',resting(pose()),pose());
       baseline(); drive(); environment.setHidden(true); debug.stop(); drive();
@@ -119,7 +125,7 @@
       baseline(); drive(); environment.setReduced(true); debug.stop(); drive();
       check('reduced motion resets shake and disables enable control',resting(pose()) && toggle.disabled && debug.state.motionEnabled,pose());
       environment.setReduced(false); debug.stop(); const resumed = drive();
-      check('motion resumes after reduced motion is disabled',resumed.displacement > .005 && !toggle.disabled,resumed);
+      check('motion resumes after reduced motion is disabled',jellyMagnitude(resumed) > .005 && !toggle.disabled,resumed);
       environment.setAngle(90); debug.stop(); check('orientation changes clear stored motion',resting(pose()),pose());
       baseline(); const cheekPeak = drag(); check('touch orbit and cheek jiggle still work while sensors are enabled',cheekPeak > .0001 && cheekPeak <= .020001,cheekPeak);
       baseline(); const radius = debug.state.camera.position.distanceTo(debug.state.controls.target); key('+'); frames();
@@ -155,15 +161,72 @@
       const gl = renderer.getContext(), bytes = new Uint8Array(canvas.width*canvas.height*4);
       gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,bytes); return bytes;
     }
+    function warpPoint(point,helper) {
+      const [x,y,z] = point;
+      if(y <= .04) return point.slice();
+      const height = 1.894408, tau = Math.PI*2, h = Math.max(0,Math.min(1,y/height)), phase = tau*h;
+      const t = Math.max(0,Math.min(1,(y-.04)/.18)), anchor = t*t*(3-2*t);
+      const bend = h*h*(3-2*h), ripple = Math.sin(phase)*Math.sin(phase*.5)**2;
+      const radial = -.5*helper.squash.value*anchor*Math.cos(phase);
+      return [x+radial*(x-.0024175)+anchor*(helper.bend.x*bend+helper.ripple.x*ripple),y+helper.squash.value*height/tau*anchor*Math.sin(phase),z+radial*(z+.0014455)+anchor*(helper.bend.z*bend+helper.ripple.z*ripple)];
+    }
+    function floorDiagnostics(jellies,camera) {
+      let pinnedVertices = 0, pinnedUnchanged = true, minimumOriginalWorldY = Infinity, minimumDeformedWorldY = Infinity, lowestMovingPixel = -Infinity;
+      const unique = new Set(), original = camera.position.clone(), deformed = camera.position.clone();
+      for(const helper of jellies) {
+        helper.mesh.updateWorldMatrix(true,false);
+        const positions = helper.mesh.geometry.getAttribute('position');
+        for(let i = 0; i < positions.count; i++) {
+          const point = [positions.getX(i),positions.getY(i),positions.getZ(i)], warped = warpPoint(point,helper);
+          original.fromArray(point).applyMatrix4(helper.mesh.matrixWorld); deformed.fromArray(warped).applyMatrix4(helper.mesh.matrixWorld);
+          minimumOriginalWorldY = Math.min(minimumOriginalWorldY,original.y); minimumDeformedWorldY = Math.min(minimumDeformedWorldY,deformed.y);
+          if(point[1] <= .04) {pinnedVertices++;unique.add(point.join(','));pinnedUnchanged &&= point.every((value,axis) => value === warped[axis]);}
+          else {
+            original.project(camera); deformed.project(camera);
+            lowestMovingPixel = Math.max(lowestMovingPixel,(.5-original.y*.5)*canvas.height,(.5-deformed.y*.5)*canvas.height);
+          }
+        }
+      }
+      // Four pixels exclude antialiasing around every potentially moving triangle.
+      return {pinnedVertices,uniquePinnedVertices:unique.size,pinnedUnchanged,minimumOriginalWorldY,minimumDeformedWorldY,floorBandStart:Math.ceil(lowestMovingPixel+4)};
+    }
     async function saveViews() {
       await load(); await enable(); baseline();
-      const cameraBefore = debug.state.camera.position.toArray(), restPixels = pixels(), rest = await saveImage('shake-phone-rest');
-      const peak = drive({x:18,y:-14,z:5}), movedPixels = pixels(), moved = await saveImage('shake-phone-peak');
-      let changedPixels = 0;
-      for(let i = 0; i < restPixels.length; i += 4) if(restPixels[i] !== movedPixels[i] || restPixels[i+1] !== movedPixels[i+1] || restPixels[i+2] !== movedPixels[i+2] || restPixels[i+3] !== movedPixels[i+3]) changedPixels++;
-      const cameraAfter = debug.state.camera.position.toArray();
-      const sameCamera = cameraBefore.every((value,index) => Math.abs(value-cameraAfter[index]) < 1e-10);
-      return report({kind:'shake-views',passed:changedPixels > 0 && sameCamera && peak.allBounded,width:canvas.width,height:canvas.height,changedPixels,sameCamera,cameraBefore,cameraAfter,peak,rest,moved,errors:environment.errors});
+      const {body,camera,controls,cheeks,jellies} = debug.state;
+      const positions = jellies.map(helper => helper.mesh.geometry.getAttribute('position').array.slice());
+      const initialPeak = drive({x:18,y:-14,z:5});
+      environment.motion(); frames(10);
+      const jellyPose = pose(), full = await saveImage('jelly-phone-full-shake');
+      const offsets = jellies.map(helper => ({bend:helper.bend.clone(),ripple:helper.ripple.clone(),squash:helper.squash.value}));
+      body.position.set(0,0,0); body.quaternion.identity(); body.scale.set(1,1,1); body.updateWorldMatrix(true,true);
+      cheeks.forEach(cheek => cheek.reset(controls.getAzimuthalAngle(),controls.getPolarAngle()));
+      const radius = camera.position.distanceTo(controls.target), polar = controls.getPolarAngle(), views = [];
+      for(const [label,angle] of [['front',0],['side',Math.PI/2]]) {
+        const relative = camera.position.clone().setFromSpherical({radius,phi:polar,theta:angle});
+        camera.position.copy(controls.target).add(relative); controls.update(); debug.stop();
+        const cameraBefore = camera.position.toArray();
+        jellies.forEach(helper => helper.reset());
+        const restPixels = pixels(), rest = await saveImage(`jelly-phone-${label}-rest`);
+        jellies.forEach((helper,index) => {helper.bend.copy(offsets[index].bend);helper.ripple.copy(offsets[index].ripple);helper.squash.value = offsets[index].squash;});
+        const movedPixels = pixels(), moved = await saveImage(`jelly-phone-${label}-deformed`);
+        const floor = floorDiagnostics(jellies,camera);
+        const divider = camera.position.clone().set(0,1.08,.1);
+        jellies[0].mesh.localToWorld(divider); divider.project(camera);
+        const splitY = Math.round((.5-divider.y*.5)*canvas.height);
+        let changedPixels = 0, headChanged = 0, blanketChanged = 0, floorPixels = 0, floorChangedPixels = 0;
+        for(let i = 0; i < restPixels.length; i += 4) {
+          const y = canvas.height-1-Math.floor(i/4/canvas.width);
+          const changed = restPixels[i] !== movedPixels[i] || restPixels[i+1] !== movedPixels[i+1] || restPixels[i+2] !== movedPixels[i+2] || restPixels[i+3] !== movedPixels[i+3];
+          if(y >= floor.floorBandStart && (restPixels[i+3] || movedPixels[i+3])) {floorPixels++;if(changed)floorChangedPixels++;}
+          if(changed) {changedPixels++;if(y < splitY) headChanged++; else blanketChanged++;}
+        }
+        const cameraAfter = camera.position.toArray(), sameCamera = cameraBefore.every((value,index) => Math.abs(value-cameraAfter[index]) < 1e-10);
+        views.push({label,changedPixels,headChanged,blanketChanged,sameCamera,cameraBefore,cameraAfter,floor:{...floor,floorPixels,floorChangedPixels},rest,moved});
+      }
+      const originalGeometry = jellies.every((helper,index) => helper.mesh.geometry.getAttribute('position').array.every((value,vertex) => value === positions[index][vertex]));
+      const fixedGroup = body.position.length() === 0 && body.quaternion.w === 1 && body.scale.toArray().every(axis => axis === 1);
+      const fixedCheeks = cheeks.every(cheek => cheek.offsets.every(offset => offset.length() === 0));
+      return report({kind:'jelly-views',passed:views.every(view => view.changedPixels > 50 && view.headChanged > 25 && view.blanketChanged > 25 && view.sameCamera && view.floor.pinnedVertices === 2152 && view.floor.uniquePinnedVertices === 2045 && view.floor.pinnedUnchanged && view.floor.minimumDeformedWorldY >= view.floor.minimumOriginalWorldY-1e-10 && view.floor.floorPixels > 10 && view.floor.floorChangedPixels === 0) && fixedGroup && fixedCheeks && originalGeometry && initialPeak.allBounded && bounded(jellyPose) && !environment.errors.length,width:canvas.width,height:canvas.height,views,fixedGroup,fixedCheeks,originalGeometry,jellyPose,full,errors:environment.errors});
     }
     function action(callback) {return async () => {buttons.forEach(button => button.disabled = true); output.textContent = 'Running…'; try {await callback();} catch(error) {await report({passed:false,error:error.stack || String(error)});} finally {buttons.forEach(button => button.disabled = false);}};}
     document.querySelector('#run').addEventListener('click',action(run));

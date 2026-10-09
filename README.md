@@ -1,6 +1,6 @@
 # سلمان ونوني
 
-A minimal, mobile-first 3D baby viewer. Select سلمان to view the supplied model, drag to rotate, and pinch to zoom. His cheeks lag and wobble with rotation, then settle; zoom does not trigger the effect. On a touch device, tap **تفعيل الاهتزاز** and allow motion access to make the whole model wobble and gently squash when the phone is shaken. Tap **إيقاف الاهتزاز** to stop. Both effects respect the device's reduced-motion preference. Select نوني for “Coming soon.”
+A minimal, mobile-first 3D baby viewer. Select سلمان to view the supplied model, drag to rotate, and pinch to zoom. His cheeks lag and wobble with rotation, then settle; zoom does not trigger the effect. On a touch device, tap **تفعيل الاهتزاز** and allow motion access to make the head and blanket bend, ripple, and squash like jelly when the phone is shaken. Independent springs deform the mesh and rebound after release, while the bottom contact patch stays fixed on the ground. Tap **إيقاف الاهتزاز** to stop. Both effects respect the device's reduced-motion preference. Select نوني for “Coming soon.”
 
 Live website: <https://modigmd.github.io/salman-noony-3d/>
 
@@ -31,7 +31,7 @@ Open <http://127.0.0.1:8766/tests/production-check.html> and run the integration
 
 ## Phone shake verification
 
-Run `node --test tests/shake-physics.test.mjs` for sensor filtering, orientation mapping, bounds, settling, and 30/60/120 FPS comparisons. With the same fixture server, open <http://127.0.0.1:8766/tests/shake-check.html> for production motion handlers, permission grant/denial/retry, reduced motion, tab/visibility/resize behavior, and equal-camera render comparisons. Sensor readings and Safari permission outcomes are simulated; actual device testing requires a phone over HTTPS. Motion readings stay in the browser.
+Run `node --test tests/shake-physics.test.mjs tests/jelly-physics.test.mjs` for sensor filtering, orientation mapping, independent deformation springs, bounds, settling, and 30/60/120 FPS comparisons. With the same fixture server, open <http://127.0.0.1:8766/tests/shake-check.html> for production motion handlers, permission grant/denial/retry, reduced motion, tab/visibility/resize behavior, and equal-camera front/side render comparisons. The render checks hold the model group and cheeks fixed to isolate GPU body deformation, while verifying the original geometry remains unchanged. Sensor readings and Safari permission outcomes are simulated; actual device testing requires a phone over HTTPS. Motion readings stay in the browser.
 
 ## Website files
 

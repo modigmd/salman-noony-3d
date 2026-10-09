@@ -68,6 +68,7 @@ const appInstrumentation = `
 window.qaDebug = {
   get state() {return {model, camera, controls, cheeks, active, renderer, scene, reducedMotion:reducedMotion.matches, lastTime,
     shake:typeof shake === 'undefined' ? null : shake, body:typeof body === 'undefined' ? null : body,
+    jellies:typeof jellies === 'undefined' ? [] : jellies,
     motionEnabled:typeof motionEnabled === 'undefined' ? false : motionEnabled};},
   resetMotion, draw, fit,
   stop() {cancelAnimationFrame(frame);},
