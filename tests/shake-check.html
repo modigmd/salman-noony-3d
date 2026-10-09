@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Phone shake integration checks</title>
+  <style>body{margin:12px;background:#111;color:#eee;font:13px/1.4 system-ui}button{padding:8px;font:inherit;margin:2px}pre{white-space:pre-wrap;max-height:160px;overflow:auto}iframe{display:block;width:390px;height:844px;border:1px solid #555;margin-top:10px}</style>
+</head>
+<body>
+  <button id="run">Run shake checks</button><button id="permissions">Permission cases</button><button id="views">Save shake views</button>
+  <pre id="result">Loading phone viewer…</pre>
+  <iframe id="site" title="Production phone shake viewer" src="/tests/production-viewer.html?permission=grant"></iframe>
+  <script type="module">
+    const iframe = document.querySelector('#site'), output = document.querySelector('#result');
+    const buttons = [...document.querySelectorAll('body > button')];
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    let child, debug, environment, canvas, toggle;
+    async function ready() {
+      for(let attempt = 0; attempt < 400; attempt++) {
+        child = iframe.contentWindow;
+        if(child.qaDebug?.state.model && child.qaDebug.state.body && child.document.querySelector('canvas.ready')) {
+          debug = child.qaDebug; environment = child.qaEnvironment; canvas = child.document.querySelector('canvas');
+          toggle = child.document.querySelector('#shake-toggle'); debug.stop(); return;
+        }
+        await wait(50);
+      }
+      throw Error('Shake viewer did not become ready within 20 seconds');
+    }
+    async function load(mode = 'grant', reduced = false) {
+      iframe.style.width = '390px'; iframe.style.height = '844px';
+      const loaded = new Promise(resolve => iframe.addEventListener('load', resolve, {once:true}));
+      iframe.src = `/tests/production-viewer.html?permission=${mode}&reduced=${Number(reduced)}&run=${Date.now()}`;
+      await loaded; await ready();
+    }
+    function pose() {
+      const {body, camera} = debug.state;
+      const screen = body.position.clone().applyQuaternion(camera.quaternion.clone().invert()).toArray();
+      return {position:body.position.toArray(), screen, displacement:body.position.length(), rotation:2*Math.acos(Math.min(1,Math.abs(body.quaternion.w))), scale:body.scale.toArray()};
+    }
+    const resting = value => value.displacement < 1e-10 && value.rotation < 1e-7 && value.scale.every(axis => Math.abs(axis-1) < 1e-10);
+    const bounded = value => [...value.position,value.rotation,...value.scale].every(Number.isFinite) && value.displacement <= .100001 && value.rotation < .4 && value.scale[1] >= .95999 && value.scale[1] <= 1.04001 && [value.scale[0],value.scale[2]].every(axis => axis >= .97999 && axis <= 1.02001);
+    function frames(count = 1) {for(let i = 0; i < count; i++) debug.step(1/60,false);}
+    function baseline() {debug.fit(); debug.stop(); debug.resetMotion(); debug.stop();}
+    async function enable() {if(!debug.state.motionEnabled) {toggle.click(); await wait(0); debug.stop();}}
+    function drive(acceleration = {x:12,y:-9,z:3}, angle = 0, count = 10) {
+      let peak = pose(), allBounded = true;
+      for(let i = 0; i < count; i++) {
+        environment.motion(acceleration,angle); frames();
+        const current = pose(); allBounded &&= bounded(current);
+        if(current.displacement > peak.displacement) peak = current;
+      }
+      return {...peak, allBounded};
+    }
+    function settle() {environment.motion(); frames(180); return pose();}
+    function key(value) {canvas.dispatchEvent(new child.KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true}));}
+    function drag() {
+      const box = canvas.getBoundingClientRect(), x = box.left+box.width*.4, y = box.top+box.height*.55;
+      const pointer = (type,px) => canvas.dispatchEvent(new child.PointerEvent(type,{pointerId:1,pointerType:'touch',clientX:px,clientY:y,button:0,buttons:type === 'pointerup' ? 0 : 1,bubbles:true,cancelable:true}));
+      pointer('pointerdown',x); let peak = 0;
+      for(let i = 1; i <= 8; i++) {pointer('pointermove',x+i*12);frames();peak = Math.max(peak,...debug.state.cheeks.flatMap(cheek => cheek.offsets.map(offset => offset.length())));}
+      pointer('pointerup',x+96); return peak;
+    }
+    async function report(data) {
+      output.textContent = JSON.stringify(data,null,2);
+      await fetch('/tests/shake-report',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
+      return data;
+    }
+    async function run() {
+      await load();
+      const checks = [], check = (name,passed,detail) => checks.push({name,passed:Boolean(passed),detail});
+      baseline(); check('phone shake starts disabled at rest', !debug.state.motionEnabled && resting(pose()) && environment.permissionCalls === 0, pose());
+      toggle.click(); check('permission starts synchronously from tap', environment.permissionCalls === 1 && toggle.disabled, environment.permissionCalls);
+      await wait(0); debug.stop();
+      check('grant enables motion and updates accessible toggle', debug.state.motionEnabled && toggle.getAttribute('aria-pressed') === 'true' && !toggle.disabled, toggle.textContent);
+      baseline();
+      for(let i = 0; i < 8; i++) {environment.motion(null,0,null);frames();}
+      check('missing sensor readings are ignored',resting(pose()) && debug.state.shake.samples.length === 0,pose());
+      baseline();
+      for(let i = 0; i < 12; i++) {environment.motion(null,0,{x:0,y:9.81,z:0});frames();}
+      check('stationary gravity produces no shake',resting(pose()),pose());
+      baseline(); const portrait = drive({x:12,y:0,z:0});
+      check('portrait shake moves the entire model against acceleration', portrait.screen[0] < -.001 && Math.abs(portrait.screen[1]) < .0001 && portrait.allBounded, portrait);
+      baseline(); const landscape = drive({x:0,y:12,z:0},90);
+      check('landscape sensor axes follow screen orientation', landscape.screen[0] > .001 && Math.abs(landscape.screen[1]) < .0001 && landscape.allBounded, landscape);
+      baseline(); const peak = drive();
+      check('shake creates bounded translation rotation and squash', peak.displacement > .005 && peak.rotation > .001 && Math.abs(peak.scale[1]-1) > .001 && peak.allBounded, peak);
+      const settled = settle(); check('whole-model motion settles after sensor input stops', resting(settled), settled);
+      baseline();
+      const fitState = () => ({position:debug.state.camera.position.toArray(),minimum:debug.state.controls.minDistance,maximum:debug.state.controls.maxDistance});
+      const fitReference = fitState();
+      let fitsMatch = true;
+      const refits = [];
+      for(const acceleration of [{x:12,y:-9,z:3},{x:-15,y:11,z:-6},{x:7,y:14,z:9}]) {
+        drive(acceleration); debug.fit(); debug.stop(); const current = fitState();
+        fitsMatch &&= current.position.every((value,index) => Math.abs(value-fitReference.position[index]) < 1e-10) && Math.abs(current.minimum-fitReference.minimum) < 1e-10 && Math.abs(current.maximum-fitReference.maximum) < 1e-10;
+        refits.push(current);
+      }
+      check('refitting after shake restores identical camera framing and zoom bounds',fitsMatch,{reference:fitReference,refits});
+      baseline(); let repeatedPeak = 0, repeatedBounded = true;
+      for(let i = 0; i < 20; i++) {const current = drive({x:i%2 ? -80 : 80,y:60,z:-30},0,2); repeatedPeak = Math.max(repeatedPeak,current.displacement); repeatedBounded &&= current.allBounded;}
+      check('rapid reversing shake remains bounded', repeatedPeak > .005 && repeatedBounded, repeatedPeak); settle();
+      baseline(); drive(); toggle.click(); await wait(0); debug.stop(); drive();
+      check('disable resets transforms and ignores sensor input', !debug.state.motionEnabled && resting(pose()) && toggle.getAttribute('aria-pressed') === 'false', pose());
+      await enable(); baseline(); drive(); child.document.querySelector('#noony').click(); debug.stop(); drive();
+      check('Noony resets motion and ignores incoming samples', !debug.state.active && debug.state.motionEnabled && resting(pose()),pose());
+      child.document.querySelector('#salman').click(); debug.stop(); frames(); check('return to Salman has no stored shake impulse',resting(pose()),pose());
+      baseline(); drive();
+      const beforeHeight = pose(), radiusBeforeHeight = debug.state.camera.position.distanceTo(debug.state.controls.target), springBeforeHeight = [...debug.state.shake.position], samplesBeforeHeight = debug.state.shake.samples.length;
+      iframe.style.height = '780px'; child.dispatchEvent(new child.Event('resize')); debug.stop();
+      const afterHeight = pose(), radiusAfterHeight = debug.state.camera.position.distanceTo(debug.state.controls.target);
+      const samePose = [...beforeHeight.position,beforeHeight.rotation,...beforeHeight.scale].every((value,index) => Math.abs(value-[...afterHeight.position,afterHeight.rotation,...afterHeight.scale][index]) < 1e-12);
+      check('height-only phone viewport changes preserve live shake and camera distance',samePose && beforeHeight.displacement > .005 && Math.abs(radiusAfterHeight-radiusBeforeHeight) < 1e-12 && springBeforeHeight.every((value,index) => value === debug.state.shake.position[index]) && samplesBeforeHeight === debug.state.shake.samples.length,{before:beforeHeight,after:afterHeight,radiusBefore:radiusBeforeHeight,radiusAfter:radiusAfterHeight});
+      frames(); check('shake continues finitely after height-only resize',bounded(pose()) && pose().displacement > 0,pose());
+      baseline(); drive(); iframe.style.width = '420px'; child.dispatchEvent(new child.Event('resize')); debug.stop();
+      check('resize refits and resets whole-model motion',resting(pose()),pose());
+      baseline(); drive(); environment.setHidden(true); debug.stop(); drive();
+      check('hidden document resets and ignores sensor input',resting(pose()),pose());
+      environment.setHidden(false); debug.stop(); frames(); check('visibility resume has no stale shake',resting(pose()),pose());
+      baseline(); drive(); environment.setReduced(true); debug.stop(); drive();
+      check('reduced motion resets shake and disables enable control',resting(pose()) && toggle.disabled && debug.state.motionEnabled,pose());
+      environment.setReduced(false); debug.stop(); const resumed = drive();
+      check('motion resumes after reduced motion is disabled',resumed.displacement > .005 && !toggle.disabled,resumed);
+      environment.setAngle(90); debug.stop(); check('orientation changes clear stored motion',resting(pose()),pose());
+      baseline(); const cheekPeak = drag(); check('touch orbit and cheek jiggle still work while sensors are enabled',cheekPeak > .0001 && cheekPeak <= .020001,cheekPeak);
+      baseline(); const radius = debug.state.camera.position.distanceTo(debug.state.controls.target); key('+'); frames();
+      check('zoom remains functional without moving the body',debug.state.camera.position.distanceTo(debug.state.controls.target) < radius && resting(pose()),pose());
+      check('production rendering and sensor handlers have no browser errors',environment.errors.length === 0,environment.errors);
+      baseline(); return report({kind:'shake-integration',passed:checks.every(item => item.passed),checks});
+    }
+    async function permissionCases() {
+      const cases = [];
+      for(const mode of ['grant','deny','reject','none','unsupported']) {
+        await load(mode); baseline(); toggle.click(); await wait(0); debug.stop();
+        const enabled = mode === 'grant' || mode === 'none';
+        const current = {mode,enabled:debug.state.motionEnabled,calls:environment.permissionCalls,toolsHidden:child.document.querySelector('#shake-tools').hidden,status:child.document.querySelector('#shake-status').textContent,errors:[...environment.errors]};
+        current.passed = current.enabled === enabled && current.calls === (mode === 'none' || mode === 'unsupported' ? 0 : 1) && (mode !== 'unsupported' || current.toolsHidden) && !current.errors.length;
+        if(mode === 'deny' || mode === 'reject') {
+          drive(); current.ignoredAtRest = resting(pose()); environment.setPermissionMode('grant'); await enable();
+          current.retryEnabled = debug.state.motionEnabled; current.passed &&= current.ignoredAtRest && current.retryEnabled && environment.permissionCalls === 2;
+        }
+        cases.push(current);
+      }
+      await load('grant',true); baseline(); toggle.click(); await wait(0); debug.stop(); drive();
+      cases.push({mode:'initial-reduced-motion',passed:!debug.state.motionEnabled && toggle.disabled && environment.permissionCalls === 0 && resting(pose()),calls:environment.permissionCalls,body:pose()});
+      return report({kind:'shake-permissions',passed:cases.every(item => item.passed),cases});
+    }
+    async function saveImage(name) {
+      const {renderer,scene,camera} = debug.state; renderer.render(scene,camera);
+      const png = canvas.toDataURL('image/png');
+      const response = await fetch('/tests/image',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,png})});
+      return (await response.json()).path;
+    }
+    function pixels() {
+      const {renderer,scene,camera} = debug.state; renderer.render(scene,camera);
+      const gl = renderer.getContext(), bytes = new Uint8Array(canvas.width*canvas.height*4);
+      gl.readPixels(0,0,canvas.width,canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,bytes); return bytes;
+    }
+    async function saveViews() {
+      await load(); await enable(); baseline();
+      const cameraBefore = debug.state.camera.position.toArray(), restPixels = pixels(), rest = await saveImage('shake-phone-rest');
+      const peak = drive({x:18,y:-14,z:5}), movedPixels = pixels(), moved = await saveImage('shake-phone-peak');
+      let changedPixels = 0;
+      for(let i = 0; i < restPixels.length; i += 4) if(restPixels[i] !== movedPixels[i] || restPixels[i+1] !== movedPixels[i+1] || restPixels[i+2] !== movedPixels[i+2] || restPixels[i+3] !== movedPixels[i+3]) changedPixels++;
+      const cameraAfter = debug.state.camera.position.toArray();
+      const sameCamera = cameraBefore.every((value,index) => Math.abs(value-cameraAfter[index]) < 1e-10);
+      return report({kind:'shake-views',passed:changedPixels > 0 && sameCamera && peak.allBounded,width:canvas.width,height:canvas.height,changedPixels,sameCamera,cameraBefore,cameraAfter,peak,rest,moved,errors:environment.errors});
+    }
+    function action(callback) {return async () => {buttons.forEach(button => button.disabled = true); output.textContent = 'Running…'; try {await callback();} catch(error) {await report({passed:false,error:error.stack || String(error)});} finally {buttons.forEach(button => button.disabled = false);}};}
+    document.querySelector('#run').addEventListener('click',action(run));
+    document.querySelector('#permissions').addEventListener('click',action(permissionCases));
+    document.querySelector('#views').addEventListener('click',action(saveViews));
+    await ready(); output.textContent = 'Phone shake viewer ready.';
+  </script>
+</body>
+</html>

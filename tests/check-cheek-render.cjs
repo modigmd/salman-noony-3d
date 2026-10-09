@@ -11,11 +11,29 @@ const port = Number(process.env.CHEEK_QA_PORT || 8766);
 const types = {'.html':'text/html;charset=utf-8', '.js':'text/javascript;charset=utf-8', '.mjs':'text/javascript;charset=utf-8', '.css':'text/css', '.glb':'model/gltf-binary', '.ttf':'font/ttf', '.svg':'image/svg+xml'};
 let latestReport = null;
 let productionReport = null;
+let shakeReport = null;
 
 const environmentPrelude = `<script>
   (() => {
     const errors = [], realMatchMedia = window.matchMedia.bind(window), originalError = console.error;
-    let reduced = false, hidden = false;
+    const params = new URLSearchParams(location.search), realNow = performance.now.bind(performance);
+    let reduced = params.get('reduced') === '1', hidden = false, clock = null, angle = 0;
+    let permissionMode = params.get('permission'), permissionCalls = 0;
+    Object.defineProperty(performance, 'now', {value:() => clock === null ? realNow() : clock, configurable:true});
+    if(permissionMode) {
+      Object.defineProperty(navigator, 'maxTouchPoints', {value:5, configurable:true});
+      if(permissionMode === 'unsupported') Object.defineProperty(window, 'DeviceMotionEvent', {value:undefined, configurable:true});
+      else {
+        class MockDeviceMotionEvent extends Event {}
+        if(permissionMode !== 'none') MockDeviceMotionEvent.requestPermission = () => {
+          permissionCalls++;
+          return permissionMode === 'reject' ? Promise.reject(new Error('Fixture permission failure')) : Promise.resolve(permissionMode === 'deny' ? 'denied' : 'granted');
+        };
+        Object.defineProperty(window, 'DeviceMotionEvent', {value:MockDeviceMotionEvent, configurable:true});
+      }
+      Object.defineProperty(window, 'orientation', {get:() => angle, configurable:true});
+      if(screen.orientation) Object.defineProperty(screen.orientation, 'angle', {get:() => angle, configurable:true});
+    }
     const media = new EventTarget();
     Object.defineProperty(media, 'matches', {get:() => reduced});
     media.media = '(prefers-reduced-motion: reduce)';
@@ -30,6 +48,17 @@ const environmentPrelude = `<script>
     canvas.releasePointerCapture = () => {};
     window.qaEnvironment = {
       errors,
+      get permissionCalls() {return permissionCalls;},
+      get permissionMode() {return permissionMode;},
+      setPermissionMode(value) {permissionMode = value;},
+      advance(milliseconds) {clock = (clock === null ? realNow() : clock)+milliseconds;},
+      setAngle(value) {angle = value; window.dispatchEvent(new Event('orientationchange')); screen.orientation?.dispatchEvent(new Event('change'));},
+      motion(acceleration = {x:0,y:0,z:0}, value = angle, gravity = null) {
+        angle = value;
+        const event = new Event('devicemotion');
+        Object.defineProperties(event, {acceleration:{value:acceleration}, accelerationIncludingGravity:{value:gravity}, interval:{value:1000/60}});
+        window.dispatchEvent(event);
+      },
       setReduced(value) {reduced = value; media.dispatchEvent(new Event('change'));},
       setHidden(value) {hidden = value; document.dispatchEvent(new Event('visibilitychange'));}
     };
@@ -37,10 +66,18 @@ const environmentPrelude = `<script>
 </script>`;
 const appInstrumentation = `
 window.qaDebug = {
-  get state() {return {model, camera, controls, cheeks, active, reducedMotion:reducedMotion.matches, lastTime};},
+  get state() {return {model, camera, controls, cheeks, active, renderer, scene, reducedMotion:reducedMotion.matches, lastTime,
+    shake:typeof shake === 'undefined' ? null : shake, body:typeof body === 'undefined' ? null : body,
+    motionEnabled:typeof motionEnabled === 'undefined' ? false : motionEnabled};},
   resetMotion, draw, fit,
   stop() {cancelAnimationFrame(frame);},
-  step(elapsed = 1/60) {lastTime = performance.now()-elapsed*1000; draw(); cancelAnimationFrame(frame);}
+  step(elapsed = 1/60, render = true) {
+    window.qaEnvironment.advance(elapsed*1000);
+    lastTime = performance.now()-elapsed*1000;
+    const originalRender = renderer.render;
+    if(!render) renderer.render = () => {};
+    try {draw();} finally {renderer.render = originalRender; cancelAnimationFrame(frame);}
+  }
 };
 `;
 
@@ -63,7 +100,7 @@ const server = http.createServer((req, res) => {
     fs.readFile(path.join(dist, html ? 'index.html' : 'app.js'), 'utf8', (error, source) => {
       if(error) {res.writeHead(404).end(); return;}
       const data = html
-        ? source.replace('<head>', '<head><base href="/">').replace('<script type="module" src="./app.js"></script>', environmentPrelude + '<script type="module" src="/tests/production-app.js"></script>')
+        ? source.replace('<head>', '<head><base href="/">').replace(/<script type="module" src="\.\/app\.js(\?[^\"]*)?"><\/script>/, (_, query = '') => environmentPrelude + '<script type="module" src="/tests/production-app.js' + query + '"></script>')
         : source.replaceAll("from './", "from '/") + appInstrumentation;
       res.writeHead(200, {'Content-Type':html ? types['.html'] : types['.js'], 'Cache-Control':'no-store'});
       res.end(data);
@@ -73,6 +110,10 @@ const server = http.createServer((req, res) => {
   if(pathname === '/tests/production-report') {
     if(req.method === 'GET') {json(res, 200, productionReport); return;}
     if(req.method === 'POST') {post(req, res, data => {productionReport = data; console.log(JSON.stringify(data)); json(res, 200, {received:true});}); return;}
+  }
+  if(pathname === '/tests/shake-report') {
+    if(req.method === 'GET') {json(res, 200, shakeReport); return;}
+    if(req.method === 'POST') {post(req, res, data => {shakeReport = data; console.log(JSON.stringify(data)); json(res, 200, {received:true});}); return;}
   }
   if(pathname === '/tests/report') {
     if(req.method === 'GET') {json(res, 200, latestReport); return;}

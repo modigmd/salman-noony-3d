@@ -7,7 +7,7 @@
   <title>سلمان ونوني</title>
   <meta name="description" content="سلمان ونوني">
   <link rel="icon" href="./favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="./style.css">
+  <link rel="stylesheet" href="./style.css?v=shake-1">
   <script type="importmap">{"imports":{"three":"./vendor/three.module.js"}}</script>
 </head>
 <body>
@@ -22,9 +22,13 @@
       <div id="loading" role="status" aria-label="جارٍ التحميل"><span></span></div>
       <div id="error" hidden><button aria-label="إعادة المحاولة" onclick="location.reload()">↻</button></div>
       <canvas aria-label="نموذج سلمان ثلاثي الأبعاد، اسحب للدوران واستخدم إصبعين للتكبير" tabindex="0"></canvas>
+      <div id="shake-tools" hidden>
+        <button id="shake-toggle" type="button" aria-pressed="false" aria-describedby="shake-status">تفعيل الاهتزاز</button>
+        <p id="shake-status" role="status" aria-live="polite"></p>
+      </div>
     </section>
     <section id="soon" role="tabpanel" aria-labelledby="noony" hidden><p lang="en" dir="ltr">Coming soon</p></section>
   </main>
-  <script type="module" src="./app.js"></script>
+  <script type="module" src="./app.js?v=shake-1"></script>
 </body>
 </html>
