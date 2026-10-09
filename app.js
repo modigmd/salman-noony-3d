@@ -3,20 +3,21 @@ import {OrbitControls} from './vendor/OrbitControls.js';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
 import {CheekJiggle} from './cheek-jiggle.js';
 import {ShakeSpring} from './shake-physics.mjs?v=shake-1';
+import {BodyJelly} from './body-jelly.js?v=jelly-1';
 
 const canvas = document.querySelector('canvas');
 const viewer = document.querySelector('#viewer');
 const soon = document.querySelector('#soon');
 const tabs = [...document.querySelectorAll('[role=tab]')];
 let renderer, controls, camera, scene, model, frame;
-let cheeks=[], lastTime=null;
+let cheeks=[], jellies=[], lastTime=null;
 let viewportWidth=0;
 let body, motionEnabled=false, motionPending=false, motionReceived=false, motionTimer;
 const shake=new ShakeSpring();
 const shakeTools=document.querySelector('#shake-tools'), shakeToggle=document.querySelector('#shake-toggle');
 const shakeStatus=document.querySelector('#shake-status');
 const motionSupported=isSecureContext && typeof DeviceMotionEvent!=='undefined' && navigator.maxTouchPoints>0;
-const shakeRotation=new THREE.Quaternion(), shakeInverse=new THREE.Quaternion(), shakeEuler=new THREE.Euler();
+const jellyVelocity=new THREE.Vector3();
 const reducedMotion=matchMedia('(prefers-reduced-motion: reduce)');
 let active = true;
 const select = (index) => {
@@ -50,13 +51,10 @@ function draw() {
   const now=performance.now(), elapsed=lastTime===null?0:(now-lastTime)/1000;
   lastTime=now;controls.update();
   if(body && motionEnabled && !reducedMotion.matches) {
-    const p=shake.update(elapsed,now/1000);
-    body.position.fromArray(p).applyQuaternion(camera.quaternion);
-    shakeRotation.setFromEuler(shakeEuler.set(p[1]*1.5,-p[0]*1.3,-p[0]*1.5));
-    shakeInverse.copy(camera.quaternion).invert();
-    body.quaternion.copy(camera.quaternion).multiply(shakeRotation).multiply(shakeInverse).normalize();
-    const stretch=THREE.MathUtils.clamp((p[1]+p[2]*.3)*.5,-.04,.04);
-    body.scale.set(1+stretch/2,1-stretch,1+stretch/2);
+    shake.update(elapsed,now/1000);
+    // Deform above the fixed base instead of translating or rotating the model group.
+    jellyVelocity.fromArray(shake.velocity).applyQuaternion(camera.quaternion);
+    jellies.forEach(jelly => jelly.update(elapsed,jellyVelocity));
   }
   const azimuth=controls.getAzimuthalAngle(), polar=controls.getPolarAngle();
   cheeks.forEach(cheek => {
@@ -68,6 +66,7 @@ function draw() {
 function resetMotion() {
   lastTime=null;
   shake.reset();
+  jellies.forEach(jelly => jelly.reset());
   if(body) {
     body.position.set(0,0,0);body.quaternion.identity();body.scale.set(1,1,1);
     body.updateWorldMatrix(true,true);
@@ -154,7 +153,9 @@ try {
     const box=new THREE.Box3().setFromObject(model);
     model.position.sub(box.getCenter(new THREE.Vector3()));
     body=new THREE.Group();body.add(model);scene.add(body);
-    model.traverse(object => {if(object.isMesh)cheeks.push(new CheekJiggle(object));});
+    model.traverse(object => {if(object.isMesh) {
+      cheeks.push(new CheekJiggle(object));jellies.push(new BodyJelly(object));
+    }});
     fit();document.querySelector('#loading').hidden=true;canvas.classList.add('ready');
     shakeTools.hidden=!motionSupported;draw();
   },undefined,failed);
