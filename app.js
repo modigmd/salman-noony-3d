@@ -3,7 +3,7 @@ import {OrbitControls} from './vendor/OrbitControls.js';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
 import {CheekJiggle} from './cheek-jiggle.js';
 import {ShakeSpring} from './shake-physics.mjs?v=shake-1';
-import {BodyJelly} from './body-jelly.js?v=jelly-1';
+import {BodyJelly} from './body-jelly.js?v=jelly-2';
 
 const canvas = document.querySelector('canvas');
 const viewer = document.querySelector('#viewer');
