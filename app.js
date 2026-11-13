@@ -3,14 +3,14 @@ import {OrbitControls} from './vendor/OrbitControls.js';
 import {GLTFLoader} from './vendor/GLTFLoader.js';
 import {CheekJiggle} from './cheek-jiggle.js';
 import {ShakeSpring} from './shake-physics.mjs?v=shake-1';
-import {BodyJelly} from './body-jelly.js?v=jelly-2';
+import {BodyJelly} from './body-jelly.js?v=jelly-3';
 
 const canvas = document.querySelector('canvas');
 const viewer = document.querySelector('#viewer');
 const soon = document.querySelector('#soon');
 const tabs = [...document.querySelectorAll('[role=tab]')];
 let renderer, controls, camera, scene, model, frame;
-let cheeks=[], jellies=[], lastTime=null;
+let cheeks=[], jellies=[], lastTime=null, previousOrbit=null;
 let viewportWidth=0;
 let body, motionEnabled=false, motionPending=false, motionReceived=false, motionTimer;
 const shake=new ShakeSpring();
@@ -50,13 +50,21 @@ function draw() {
   if (!active || document.hidden) return;
   const now=performance.now(), elapsed=lastTime===null?0:(now-lastTime)/1000;
   lastTime=now;controls.update();
-  if(body && motionEnabled && !reducedMotion.matches) {
-    shake.update(elapsed,now/1000);
+  const azimuth=controls.getAzimuthalAngle(), polar=controls.getPolarAngle();
+  if(body && !reducedMotion.matches) {
+    if(motionEnabled)shake.update(elapsed,now/1000);
+    jellyVelocity.fromArray(shake.velocity);
+    // Like the cheeks, soft tissue lags orbit rotation; zoom contributes no impulse.
+    if(previousOrbit && elapsed>0 && elapsed<=.25) {
+      const delta=azimuth-previousOrbit[0];
+      jellyVelocity.x-=.45*Math.atan2(Math.sin(delta),Math.cos(delta))/elapsed;
+      jellyVelocity.y+=.65*(polar-previousOrbit[1])/elapsed;
+    }
     // Deform above the fixed base instead of translating or rotating the model group.
-    jellyVelocity.fromArray(shake.velocity).applyQuaternion(camera.quaternion);
+    jellyVelocity.applyQuaternion(camera.quaternion);
     jellies.forEach(jelly => jelly.update(elapsed,jellyVelocity));
   }
-  const azimuth=controls.getAzimuthalAngle(), polar=controls.getPolarAngle();
+  previousOrbit=[azimuth,polar];
   cheeks.forEach(cheek => {
     if(reducedMotion.matches)cheek.reset(azimuth,polar);
     else cheek.update(elapsed,azimuth,polar,camera);
@@ -82,6 +90,7 @@ function resetMotion() {
   controls.enableDamping=false;controls.update();
   camera.position.copy(position);controls.target.copy(target);controls.enableDamping=damping;controls.update();
   cheeks.forEach(cheek => cheek.reset(controls.getAzimuthalAngle(),controls.getPolarAngle()));
+  previousOrbit=[controls.getAzimuthalAngle(),controls.getPolarAngle()];
 }
 function fit() {
   resetMotion();

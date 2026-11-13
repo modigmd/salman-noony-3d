@@ -75,7 +75,7 @@ objectNormal = jellyNormal(position + cheekLeft.w * cheekOffsetLeft + cheekRight
 #include <project_vertex>`);
     };
     material.customProgramCacheKey=() => key()+'-body-jelly-v2';
-    material.needsUpdate=true;mesh.geometry.boundingSphere.radius+=.14;
+    material.needsUpdate=true;mesh.geometry.boundingSphere.radius+=.20;
   }
 
   update(elapsed,worldVelocity) {
@@ -83,8 +83,8 @@ objectNormal = jellyNormal(position + cheekLeft.w * cheekOffsetLeft + cheekRight
     this.inverse.copy(this.mesh.matrixWorld).invert();this.linear.setFromMatrix4(this.inverse);
     this.velocity.copy(worldVelocity).applyMatrix3(this.linear);
     this.spring.update(elapsed,this.velocity.toArray());
-    this.bend.fromArray(this.spring.upper);this.ripple.fromArray(this.spring.lower).multiplyScalar(.35);
-    this.squash.value=THREE.MathUtils.clamp(this.spring.upper[1]*2/3,-.06,.06);
+    this.bend.fromArray(this.spring.upper);this.ripple.fromArray(this.spring.lower);
+    this.squash.value=THREE.MathUtils.clamp(this.spring.upper[1],-.09,.09);
   }
 
   reset() {
