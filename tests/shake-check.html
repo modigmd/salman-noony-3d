@@ -42,7 +42,7 @@
     const poseValues = value => [...value.position,value.rotation,...value.scale,...jellyValues(value)];
     const fixedBody = value => value.displacement < 1e-10 && value.rotation < 1e-7 && value.scale.every(axis => Math.abs(axis-1) < 1e-10);
     const resting = value => fixedBody(value) && jellyValues(value).every(axis => Math.abs(axis) < 1e-10);
-    const bounded = value => poseValues(value).every(Number.isFinite) && fixedBody(value) && value.jelly.every(helper => Math.hypot(...helper.bend) <= .090001 && Math.hypot(...helper.ripple) <= .023001 && Math.abs(helper.squash) <= .060001);
+    const bounded = value => poseValues(value).every(Number.isFinite) && fixedBody(value) && value.jelly.every(helper => Math.hypot(...helper.bend) <= .090001 && Math.hypot(...helper.ripple) <= .065001 && Math.abs(helper.squash) <= .090001);
     const jellyMagnitude = value => Math.max(0,...value.jelly.map(helper => Math.hypot(...helper.bend)+Math.hypot(...helper.ripple)));
     function frames(count = 1) {for(let i = 0; i < count; i++) debug.step(1/60,false);}
     function baseline() {debug.fit(); debug.stop(); debug.resetMotion(); debug.stop();}

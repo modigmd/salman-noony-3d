@@ -1,6 +1,6 @@
 # سلمان ونوني
 
-A minimal, mobile-first 3D baby viewer. Select سلمان to view the supplied model, drag to rotate, and pinch to zoom. His cheeks lag and wobble with rotation, then settle; zoom does not trigger the effect. On a touch device, tap **تفعيل الاهتزاز** and allow motion access to make the head and blanket bend, ripple, and squash like jelly when the phone is shaken. Independent springs deform the mesh and rebound after release, while the bottom contact patch stays fixed on the ground. Tap **إيقاف الاهتزاز** to stop. Both effects respect the device's reduced-motion preference. Select نوني for “Coming soon.”
+A minimal, mobile-first 3D baby viewer. Select سلمان to view the supplied model, drag to rotate, and pinch to zoom. His cheeks and body lag and wobble with rotation, then settle; zoom does not trigger either effect. The blanket uses the full spring ripple, with stronger squash and stretch for a softer rebound. On a touch device, tap **تفعيل الاهتزاز** and allow motion access to make the head and blanket also react when the phone is shaken. Independent springs deform the mesh and rebound after release, while the bottom contact patch stays fixed on the ground. Tap **إيقاف الاهتزاز** to stop phone shake. Both effects respect the device's reduced-motion preference. Select نوني for “Coming soon.”
 
 Live website: <https://modigmd.github.io/salman-noony-3d/>
 

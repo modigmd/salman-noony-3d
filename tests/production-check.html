@@ -27,6 +27,9 @@
     }
     const magnitude = () => Math.max(0, ...debug.state.cheeks.flatMap(cheek => cheek.offsets.map(offset => offset.length())));
     const finite = () => debug.state.cheeks.every(cheek => cheek.offsets.every(offset => [offset.x,offset.y,offset.z].every(Number.isFinite)));
+    const bodyMagnitude = () => Math.max(0,...debug.state.jellies.map(jelly => jelly.bend.length()+jelly.ripple.length()+Math.abs(jelly.squash.value)));
+    const bodyBounded = () => debug.state.jellies.every(jelly => jelly.bend.length() <= .090001 && jelly.ripple.length() <= .065001 && Math.abs(jelly.squash.value) <= .090001)
+      && debug.state.body.position.length() === 0 && debug.state.body.quaternion.w === 1;
     function baseline() {debug.fit(); debug.stop(); debug.resetMotion(); debug.stop();}
     function frames(count = 1) {for(let i = 0; i < count; i++) debug.step();}
     function key(value) {canvas.dispatchEvent(new child.KeyboardEvent('keydown', {key:value, bubbles:true, cancelable:true}));}
@@ -36,10 +39,10 @@
     function drag(pointerType = 'mouse', dx = 100, dy = 0) {
       const box = canvas.getBoundingClientRect(), x = box.left+box.width*.45, y = box.top+box.height*.55;
       pointer('pointerdown', 1, x, y, pointerType);
-      let peak = 0;
-      for(let i = 1; i <= 8; i++) {pointer('pointermove', 1, x+dx*i/8, y+dy*i/8, pointerType); frames(); peak = Math.max(peak, magnitude());}
+      let peak = 0, bodyPeak = 0, bounded = true;
+      for(let i = 1; i <= 8; i++) {pointer('pointermove', 1, x+dx*i/8, y+dy*i/8, pointerType); frames(); peak = Math.max(peak, magnitude()); bodyPeak = Math.max(bodyPeak,bodyMagnitude()); bounded &&= bodyBounded();}
       pointer('pointerup', 1, x+dx, y+dy, pointerType);
-      return peak;
+      return {peak,bodyPeak,bounded};
     }
     function cameraAngle(angle) {
       const {camera, controls} = debug.state;
@@ -54,18 +57,21 @@
       const check = (name, passed, detail) => checks.push({name, passed:Boolean(passed), detail});
       try {
         await ready();
-        baseline(); check('initial fit has zero motion', magnitude() === 0, magnitude());
+        baseline(); check('initial fit has zero motion', magnitude() === 0 && bodyMagnitude() === 0, {cheeks:magnitude(),body:bodyMagnitude()});
         for(const [name, pointerType, dx, dy] of [['mouse horizontal','mouse',100,0], ['touch vertical','touch',0,90], ['touch diagonal','touch',80,60]]) {
-          baseline(); const start = debug.state.controls.getAzimuthalAngle(), peak = drag(pointerType,dx,dy);
+          baseline(); const start = debug.state.controls.getAzimuthalAngle(), {peak,bodyPeak,bounded} = drag(pointerType,dx,dy);
           check(name+' drives bounded cheek motion', peak > .0001 && peak <= .020001 && finite(), {peak, azimuthChange:debug.state.controls.getAzimuthalAngle()-start});
+          check(name+' drives body jiggle with phone shake disabled', !debug.state.motionEnabled && bodyPeak > .01 && bounded, bodyPeak);
           frames(100); check(name+' settles after release', magnitude() < .001, magnitude());
+          check(name+' body settles after release', bodyMagnitude() < .001, bodyMagnitude());
         }
         baseline(); key('ArrowLeft'); frames(); const keyboardPeak = magnitude();
         check('arrow-key orbit reaches cheeks after immediate controls update', keyboardPeak > .0001, keyboardPeak);
+        check('arrow-key orbit also drives body jiggle', bodyMagnitude() > .001 && bodyBounded(), bodyMagnitude());
         baseline(); const radiusBefore = debug.state.camera.position.distanceTo(debug.state.controls.target); key('+'); frames();
-        check('keyboard zoom changes radius without cheek impulse', debug.state.camera.position.distanceTo(debug.state.controls.target) < radiusBefore && magnitude() === 0, magnitude());
+        check('keyboard zoom changes radius without cheek or body impulse', debug.state.camera.position.distanceTo(debug.state.controls.target) < radiusBefore && magnitude() === 0 && bodyMagnitude() === 0, {cheeks:magnitude(),body:bodyMagnitude()});
         baseline(); const {camera, controls} = debug.state; camera.position.sub(controls.target).multiplyScalar(1.1).add(controls.target); controls.update(); frames();
-        check('dolly distance is excluded from cheek drive', magnitude() === 0, magnitude());
+        check('dolly distance is excluded from cheek and body drive', magnitude() === 0 && bodyMagnitude() === 0, {cheeks:magnitude(),body:bodyMagnitude()});
         baseline(); const box = canvas.getBoundingClientRect(), cx = box.left+box.width*.5, cy = box.top+box.height*.55;
         const pinchBefore = camera.position.distanceTo(controls.target);
         pointer('pointerdown',1,cx-35,cy,'touch'); pointer('pointerdown',2,cx+35,cy,'touch');
@@ -73,21 +79,21 @@
         pointer('pointerup',1,cx-59,cy,'touch'); pointer('pointerup',2,cx+59,cy,'touch');
         check('pinch zoom remains functional and bounded', camera.position.distanceTo(controls.target) < pinchBefore && magnitude() <= .020001 && finite(), {radiusBefore:pinchBefore, radiusAfter:camera.position.distanceTo(controls.target), offset:magnitude()});
         baseline(); drag(); child.document.querySelector('#noony').click(); debug.stop();
-        check('Noony tab stops and resets motion', !debug.state.active && magnitude() === 0 && child.document.querySelector('#viewer').hidden && !child.document.querySelector('#soon').hidden, magnitude());
+        check('Noony tab stops and resets motion', !debug.state.active && magnitude() === 0 && bodyMagnitude() === 0 && child.document.querySelector('#viewer').hidden && !child.document.querySelector('#soon').hidden, {cheeks:magnitude(),body:bodyMagnitude()});
         child.document.querySelector('#salman').click(); debug.stop(); frames();
-        check('Salman resume discards stale orbit damping', debug.state.active && magnitude() === 0, magnitude());
+        check('Salman resume discards stale orbit damping', debug.state.active && magnitude() === 0 && bodyMagnitude() === 0, {cheeks:magnitude(),body:bodyMagnitude()});
         baseline(); drag(); iframe.style.width = '420px'; child.dispatchEvent(new child.Event('resize')); debug.stop(); frames();
         check('resize refits and resets motion', magnitude() === 0 && Math.abs(camera.aspect-child.document.querySelector('#viewer').clientWidth/child.document.querySelector('#viewer').clientHeight) < 1e-9, {offset:magnitude(), aspect:camera.aspect});
         baseline(); drag(); environment.setHidden(true); debug.stop();
-        check('hidden document resets cheek motion', magnitude() === 0, magnitude());
+        check('hidden document resets cheek and body motion', magnitude() === 0 && bodyMagnitude() === 0, {cheeks:magnitude(),body:bodyMagnitude()});
         environment.setHidden(false); debug.stop(); frames(); check('visibility resume has no stored impulse', magnitude() === 0, magnitude());
         baseline(); drag(); environment.setReduced(true); debug.stop();
         check('changing reduced-motion preference resets immediately', magnitude() === 0 && debug.state.reducedMotion, magnitude());
-        key('ArrowRight'); frames(4); check('reduced motion suppresses animation during orbit', magnitude() === 0, magnitude());
+        key('ArrowRight'); frames(4); check('reduced motion suppresses cheek and body animation during orbit', magnitude() === 0 && bodyMagnitude() === 0, {cheeks:magnitude(),body:bodyMagnitude()});
         environment.setReduced(false); debug.stop(); key('ArrowLeft'); frames();
         check('animation resumes when reduced motion is disabled', magnitude() > .0001, magnitude());
         baseline(); cameraAngle(Math.PI-.001); debug.resetMotion(); frames(); cameraAngle(-Math.PI+.001); frames();
-        check('azimuth wrap produces a small finite impulse', magnitude() < .005 && finite(), magnitude());
+        check('azimuth wrap produces a small finite impulse', magnitude() < .005 && finite() && bodyMagnitude() < .005 && bodyBounded(), {cheeks:magnitude(),body:bodyMagnitude()});
         baseline(); let repeatedPeak = 0;
         for(let i = 0; i < 24; i++) {key(i%2 ? 'ArrowLeft' : 'ArrowRight'); frames(); repeatedPeak = Math.max(repeatedPeak,magnitude());}
         frames(90); check('repeated reversing input stays bounded and settles', repeatedPeak > .0001 && repeatedPeak <= .020001 && magnitude() < .001 && finite(), {peak:repeatedPeak, settled:magnitude()});
