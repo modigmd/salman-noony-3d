@@ -10,8 +10,8 @@ export class JellySpring {
     this.lower = [0, 0, 0];
     this.offsets = {upper: this.upper, lower: this.lower};
     this.bands = [
-      {position: this.upper, velocity: [0, 0, 0], frequency: 2 * Math.PI * 2.2, damping: 0.24, gain: 1, limit: 0.09},
-      {position: this.lower, velocity: [0, 0, 0], frequency: 2 * Math.PI * 3.4, damping: 0.28, gain: 0.7, limit: 0.065}
+      {position: this.upper, velocity: [0, 0, 0], frequency: 2 * Math.PI * 2.2, damping: 0.12, gain: 1, limit: 0.09},
+      {position: this.lower, velocity: [0, 0, 0], frequency: 2 * Math.PI * 3.4, damping: 0.14, gain: 0.7, limit: 0.065}
     ];
     this.smoothedVelocity = [0, 0, 0];
     this.previousInput = [0, 0, 0];
