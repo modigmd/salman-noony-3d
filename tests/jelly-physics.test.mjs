@@ -62,19 +62,42 @@ test('independent upper and lower bands develop different phases instead of a ri
   }
   assert.ok(differentPhase, 'head and blanket must move out of phase during the rebound');
   assert.ok(upperRebound && lowerRebound);
-  advance(spring, 2);
+  advance(spring, 4);
   assert.deepEqual(spring.upper, [0, 0, 0]);
   assert.deepEqual(spring.lower, [0, 0, 0]);
 });
 
 test('constant body velocity eventually stops deforming the model', () => {
   const spring = new JellySpring();
-  advance(spring, 3, [0.8, -0.2, 0.1]);
+  advance(spring, 6, [0.8, -0.2, 0.1]);
   assert.ok(length(spring.upper) < 0.00001);
   assert.ok(length(spring.lower) < 0.00001);
-  advance(spring, 3);
+  advance(spring, 6);
   assert.deepEqual(spring.upper, [0, 0, 0]);
   assert.deepEqual(spring.lower, [0, 0, 0]);
+});
+
+test('body keeps rebounding after release for two seconds, then settles at every frame rate', () => {
+  for (const rate of [30, 60, 120]) {
+    const spring = new JellySpring();
+    advance(spring, 0.1, [1, 0, 0], rate);
+    let upperTail = 0, lowerTail = 0, positive = false, negative = false;
+    for (let frame = 1; frame <= rate * 2; frame++) {
+      spring.update(1 / rate, [0, 0, 0]);
+      assertBounded(spring);
+      if (frame >= rate * 1.25) {
+        upperTail = Math.max(upperTail, Math.abs(spring.upper[0]));
+        lowerTail = Math.max(lowerTail, Math.abs(spring.lower[0]));
+        positive ||= spring.upper[0] > 0.001;
+        negative ||= spring.upper[0] < -0.001;
+      }
+    }
+    assert.ok(upperTail > 0.003 && lowerTail > 0.0003, `${rate} FPS body stopped wobbling too soon`);
+    assert.ok(positive && negative, 'late motion must rebound in both directions');
+    advance(spring, 4, [0, 0, 0], rate);
+    assert.deepEqual(spring.upper, [0, 0, 0]);
+    assert.deepEqual(spring.lower, [0, 0, 0]);
+  }
 });
 
 test('smooth reversing body velocity remains consistent at 30, 60, and 120 FPS', () => {
@@ -88,7 +111,7 @@ test('smooth reversing body velocity remains consistent at 30, 60, and 120 FPS',
       assertBounded(spring);
       if (frame % (rate / 10) === 0) checkpoints.push([spring.upper.slice(), spring.lower.slice()]);
     }
-    advance(spring, 3, [0, 0, 0], rate);
+    advance(spring, 6, [0, 0, 0], rate);
     assert.deepEqual(spring.upper, [0, 0, 0]);
     assert.deepEqual(spring.lower, [0, 0, 0]);
     return checkpoints;
@@ -120,7 +143,7 @@ test('actual sensor-driven ShakeSpring velocity creates visible soft-band separa
     assert.ok(peakUpper > 0.06);
     assert.ok(peakLower > 0.03);
     assert.ok(peakSeparation > 0.04);
-    for (let frame = 1; frame <= rate * 4; frame++) {
+    for (let frame = 1; frame <= rate * 6; frame++) {
       shake.update(1 / rate, 1 + frame / rate);
       jelly.update(1 / rate, shake.velocity);
     }
@@ -148,7 +171,7 @@ test('rapid extreme diagonal reversals remain bounded and settle after input sto
     }
     assert.ok(upperAtBound && lowerAtBound);
     assert.ok(positive && negative);
-    advance(spring, 3, [0, 0, 0], rate);
+    advance(spring, 6, [0, 0, 0], rate);
     assert.deepEqual(spring.upper, [0, 0, 0]);
     assert.deepEqual(spring.lower, [0, 0, 0]);
   }

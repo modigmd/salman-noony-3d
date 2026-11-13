@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import {JellySpring} from './jelly-physics.mjs?v=jelly-1';
+import {JellySpring} from './jelly-physics.mjs?v=jelly-4';
 
 // Raw GLB coordinates; keep the contact patch fixed as the head and blanket wobble.
 const deformation = `

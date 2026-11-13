@@ -56,7 +56,7 @@
       }
       return {...peak, allBounded};
     }
-    function settle() {environment.motion(); frames(180); return pose();}
+    function settle() {environment.motion(); frames(360); return pose();}
     function key(value) {canvas.dispatchEvent(new child.KeyboardEvent('keydown',{key:value,bubbles:true,cancelable:true}));}
     function drag() {
       const box = canvas.getBoundingClientRect(), x = box.left+box.width*.4, y = box.top+box.height*.55;

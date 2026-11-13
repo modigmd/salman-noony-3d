@@ -63,6 +63,10 @@
           check(name+' drives bounded cheek motion', peak > .0001 && peak <= .020001 && finite(), {peak, azimuthChange:debug.state.controls.getAzimuthalAngle()-start});
           check(name+' drives body jiggle with phone shake disabled', !debug.state.motionEnabled && bodyPeak > .01 && bounded, bodyPeak);
           frames(100); check(name+' settles after release', magnitude() < .001, magnitude());
+          let tailPeak = 0;
+          for(let i = 0; i < 30; i++) {frames(); tailPeak = Math.max(tailPeak,bodyMagnitude());}
+          check(name+' body keeps wobbling around two seconds after release', tailPeak > .001 && bodyBounded(), tailPeak);
+          frames(170);
           check(name+' body settles after release', bodyMagnitude() < .001, bodyMagnitude());
         }
         baseline(); key('ArrowLeft'); frames(); const keyboardPeak = magnitude();
